@@ -3,7 +3,9 @@ Stock ticker display on the cheap yellow display ESP32.
 
 Code is based off: https://github.com/mike-rankin/ESP32_Stock_Ticker but has been modified to use yahoo finance to allow support of Canadian stocks without subscription. I've also changed some of the formatting.
 
-Follow the setup guide here: https://github.com/LextZip/Deskbuddy/blob/main/SETUP_GUIDE.md specifically this:
+This is tested and working on the ESP32-2432S028R like this: https://www.aliexpress.com/item/1005010525144441.html
+
+Follow the setup guide here: https://github.com/LextZip/Deskbuddy/blob/main/SETUP_GUIDE.md specifically these modified steps:
 
 ## 1. Install ESP32 Board Support
 1. Open **Arduino IDE**
