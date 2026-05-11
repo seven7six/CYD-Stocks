@@ -6,7 +6,6 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 
-// --- USER SETTINGS: FILL THESE IN ---
 const char* ssid     = "<ssid>";
 const char* password = "<pass>";
 
@@ -26,12 +25,7 @@ unsigned long lastUpdate = 0;
 void setup() {
   tft.init();
   tft.setRotation(3); 
-  
-  // --- THE ULTIMATE COLOR FIX ---
-  // If your background is WHITE right now, change this to 'false'
-  // If your background is BLACK, keep it 'true'
   tft.invertDisplay(false); 
-
   tft.fillScreen(TFT_BLACK); 
   
   WiFi.begin(ssid, password);
@@ -53,13 +47,12 @@ void loop() {
 void drawStaticUI() {
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextDatum(MC_DATUM);
-  
-  // Header using Font 2 (Slightly larger/cleaner)
   tft.setTextFont(2); 
-  tft.setCursor(10, 2);   tft.print("SYMBOL");
-  tft.setCursor(105, 2);  tft.print("PRICE (CAD)");
-  tft.setCursor(240, 2);  tft.print("CHANGE%");
+  
+  tft.setCursor(5, 2);   tft.print("SYMBOL");
+  tft.setCursor(85, 2);  tft.print("PRICE");
+  tft.setCursor(180, 2); tft.print("DAY%");
+  tft.setCursor(255, 2); tft.print("YTD%");
   
   tft.drawFastHLine(0, 18, 320, TFT_DARKGREY); 
 }
@@ -67,28 +60,63 @@ void drawStaticUI() {
 void updateAllStocks() {
   for (int i = 0; i < numStocks; i++) {
     fetchYahooData(symbols[i], i);
-    delay(150); 
+    delay(200); 
   }
 }
 
 void fetchYahooData(String symbol, int index) {
   HTTPClient http;
-  String url = "https://query1.finance.yahoo.com/v8/finance/chart/" + symbol + "?interval=1m&range=1d";
+  // We use range=ytd to get the full year's daily closes
+  String url = "https://query1.finance.yahoo.com/v8/finance/chart/" + symbol + "?interval=1d&range=ytd";
   http.begin(url);
   
   if (http.GET() == 200) {
     String payload = http.getString();
-    StaticJsonDocument<200> filter;
-    filter["chart"]["result"][0]["meta"]["regularMarketPrice"] = true;
-    filter["chart"]["result"][0]["meta"]["chartPreviousClose"] = true;
-    DynamicJsonDocument doc(2048);
-    deserializeJson(doc, payload, DeserializationOption::Filter(filter));
     
-    float price = doc["chart"]["result"][0]["meta"]["regularMarketPrice"];
-    float prevClose = doc["chart"]["result"][0]["meta"]["chartPreviousClose"];
-    float changeP = (prevClose > 0) ? ((price - prevClose) / prevClose) * 100.0 : 0;
+    StaticJsonDocument<256> filter;
+    filter["chart"]["result"][0]["meta"]["regularMarketPrice"] = true;
+    filter["chart"]["result"][0]["indicators"]["quote"][0]["close"] = true;
 
-    // Row positioning: 14.5 pixels per row
+    DynamicJsonDocument doc(6144); 
+    deserializeJson(doc, payload, DeserializationOption::Filter(filter));
+
+    JsonArray closePrices = doc["chart"]["result"][0]["indicators"]["quote"][0]["close"];
+    float currentPrice = doc["chart"]["result"][0]["meta"]["regularMarketPrice"];
+    
+    float ytdStartPrice = 0;
+    float dayPrevClose = 0;
+
+    // 1. Find YTD Start (First non-null value in the array)
+    for (size_t i = 0; i < closePrices.size(); i++) {
+      if (!closePrices[i].isNull() && closePrices[i] > 0) {
+        ytdStartPrice = closePrices[i];
+        break;
+      }
+    }
+
+    // 2. Find Day Previous Close
+    // We look for the last closed price that isn't the current data point
+    int lastIdx = closePrices.size() - 1;
+    // If the last price in the array is today's price, we want the one before it
+    // We loop backwards to find the first valid 'historical' close
+    int count = 0;
+    for (int i = lastIdx; i >= 0; i--) {
+      if (!closePrices[i].isNull()) {
+        if (count == 1) { // This is the 'Previous' day
+          dayPrevClose = closePrices[i];
+          break;
+        }
+        count++;
+      }
+    }
+    
+    // Fallback: if array is too short, use current price (shows 0%)
+    if (dayPrevClose == 0) dayPrevClose = currentPrice;
+
+    float dayChangeP = ((currentPrice - dayPrevClose) / dayPrevClose) * 100.0;
+    float ytdChangeP = (ytdStartPrice > 0) ? ((currentPrice - ytdStartPrice) / ytdStartPrice) * 100.0 : 0;
+
+    // UI Drawing
     int yPos = 22 + (index * 14); 
     tft.fillRect(0, yPos, 320, 14, TFT_BLACK); 
 
@@ -97,26 +125,26 @@ void fetchYahooData(String symbol, int index) {
     else if (symbol.indexOf("-CAD") > 0) disp = symbol.substring(0, symbol.indexOf("-"));
     else if (symbol.endsWith(".TO")) disp = symbol.substring(0, symbol.indexOf("."));
 
-    // --- FONT 2: Taller and much clearer than Size 1 ---
     tft.setTextFont(2); 
-    
     tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    tft.setCursor(10, yPos); tft.print(disp);
+    tft.setCursor(5, yPos); tft.print(disp);
     
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setCursor(105, yPos); 
-    if (price < 0.01) tft.print(price, 5); 
-    else if (price < 1) tft.print(price, 4);
-    else tft.print(price, 2);
+    tft.setCursor(85, yPos); 
+    if (currentPrice < 1) tft.print(currentPrice, 4);
+    else tft.print(currentPrice, 2);
     
-    tft.setCursor(240, yPos);
-    if (changeP >= 0) {
-      tft.setTextColor(TFT_GREEN, TFT_BLACK);
-      tft.print("+");
-    } else {
-      tft.setTextColor(TFT_RED, TFT_BLACK);
-    }
-    tft.print(changeP, 2); tft.print("%");
+    // Day % Column
+    tft.setCursor(180, yPos);
+    if (dayChangeP >= 0) { tft.setTextColor(TFT_GREEN, TFT_BLACK); tft.print("+"); }
+    else { tft.setTextColor(TFT_RED, TFT_BLACK); }
+    tft.print(dayChangeP, 1); tft.print("%");
+
+    // YTD % Column
+    tft.setCursor(255, yPos);
+    if (ytdChangeP >= 0) { tft.setTextColor(TFT_GREEN, TFT_BLACK); tft.print("+"); }
+    else { tft.setTextColor(TFT_RED, TFT_BLACK); }
+    tft.print(ytdChangeP, 1); tft.print("%");
   }
   http.end();
 }
@@ -126,13 +154,11 @@ void drawStatusBar() {
   int mm = timeClient.getMinutes();
   String suffix = (hh >= 12) ? "PM" : "AM";
   hh = (hh > 12) ? hh - 12 : (hh == 0 ? 12 : hh);
-  String timeStr = "Toronto: " + String(hh) + ":" + (mm < 10 ? "0" : "") + String(mm) + " " + suffix;
-
+  String timeStr = "Toronto -  " + String(hh) + ":" + (mm < 10 ? "0" : "") + String(mm) + " " + suffix;
+  
   tft.drawFastHLine(0, 222, 320, TFT_DARKGREY);
   tft.fillRect(0, 223, 320, 17, TFT_BLACK);
-  
   tft.setTextColor(TFT_CYAN, TFT_BLACK);
-  tft.setTextFont(2); // Smaller but readable font for status
   tft.setCursor(100, 224);
   tft.print(timeStr);
 }
