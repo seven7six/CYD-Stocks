@@ -138,13 +138,13 @@ void fetchYahooData(String symbol, int index) {
     tft.setCursor(180, yPos);
     if (dayChangeP >= 0) { tft.setTextColor(TFT_GREEN, TFT_BLACK); tft.print("+"); }
     else { tft.setTextColor(TFT_RED, TFT_BLACK); }
-    tft.print(dayChangeP, 1); tft.print("%");
+    tft.print(dayChangeP, 2); tft.print("%");
 
     // YTD % Column
     tft.setCursor(255, yPos);
     if (ytdChangeP >= 0) { tft.setTextColor(TFT_GREEN, TFT_BLACK); tft.print("+"); }
     else { tft.setTextColor(TFT_RED, TFT_BLACK); }
-    tft.print(ytdChangeP, 1); tft.print("%");
+    tft.print(ytdChangeP, 2); tft.print("%");
   }
   http.end();
 }
